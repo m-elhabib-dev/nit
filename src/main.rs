@@ -8,18 +8,9 @@ use std::{
     io::{BufRead, BufReader},
 };
 
-/// Simple program to greet a person
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
-    /// Name of the person to greet
-    #[arg(short, long)]
-    name: String,
-
-    /// Number of times to greet
-    #[arg(short, long, default_value_t = 1)]
-    count: u8,
-
     #[command(subcommand)]
     command: Command,
 }
@@ -37,6 +28,10 @@ enum Command {
     },
 }
 
+enum Kind {
+    Blob,
+}
+
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
@@ -52,6 +47,10 @@ fn main() -> anyhow::Result<()> {
             pretty_print,
             object_hash,
         } => {
+            anyhow::ensure!(
+                pretty_print,
+                "mode must be given without -p, and we donot support mode"
+            );
             //TODO: support shortest-unique object hashes
             let f = std::fs::File::open(format!(
                 ".git/objects/{}/{}",
@@ -69,10 +68,15 @@ fn main() -> anyhow::Result<()> {
             let header = header
                 .to_str()
                 .context(".git/objects file header isn't valid UTF-8")?;
-            let Some(size) = header.strip_prefix("blob ") else {
-                anyhow::bail!(".git/objects file header did not start with 'blob ': '{header}'",);
+            let Some((kind, size)) = header.split_once(' ') else {
+                anyhow::bail!(
+                    ".git/objects file header did not start with a known type: '{header}'",
+                );
             };
-
+            let kind = match kind {
+                "blob" => Kind::Blob,
+                _ => anyhow::bail!("we donot know ho to print a '{kind}'"),
+            };
             let size = size
                 .parse::<usize>()
                 .context(".git/objects file header has invalid size: {size}")?;
@@ -87,10 +91,12 @@ fn main() -> anyhow::Result<()> {
             anyhow::ensure!(n == 0, ".git/object file had {n} trailing bytes");
             let stdout = std::io::stdout();
             let mut stdout = stdout.lock();
-
-            stdout
-                .write_all(&buf)
-                .context("write object contents to stdout")?;
+            match kind {
+                Kind::Blob => stdout
+                    .write_all(&buf)
+                    .context("write object contents to stdout")?,
+                _ => write!(stdout, "we donot know yet hw to print")?,
+            }
         }
     }
     Ok(())
