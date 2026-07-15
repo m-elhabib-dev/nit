@@ -1,12 +1,17 @@
 use anyhow::Context;
 use clap::{Parser, Subcommand};
-use flate2::read::ZlibDecoder;
+use sha1::{Digest, Sha1};
 use std::ffi::CStr;
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
+use std::path::{Path, PathBuf};
 use std::{
     fs,
     io::{BufRead, BufReader},
 };
+
+use flate2::Compression;
+use flate2::read::ZlibDecoder;
+use flate2::write::ZlibEncoder;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -25,6 +30,12 @@ enum Command {
         pretty_print: bool,
 
         object_hash: String,
+    },
+    HashObject {
+        #[clap(short = 'w')]
+        write: bool,
+
+        file: PathBuf,
     },
 }
 
@@ -80,10 +91,10 @@ fn main() -> anyhow::Result<()> {
             let size = size
                 .parse::<usize>()
                 .context(".git/objects file header has invalid size: {size}")?;
-            let mut z = LimitReader {
-                reader: z,
-                limit: size,
-            };
+
+            //NOTE: this won't error if decompressed file is too long, but at least not spam stdout
+            //      and be vulnerable to a zipbomb.
+            let mut z = z.take(size as u64);
             match kind {
                 Kind::Blob => {
                     let stdout = std::io::stdout();
@@ -97,28 +108,88 @@ fn main() -> anyhow::Result<()> {
                 }
             }
         }
+
+        Command::HashObject { write, file } => {
+            fn write_blob<W>(file: &Path, writer: W) -> anyhow::Result<String>
+            where
+                W: Write,
+            {
+                let stat =
+                    std::fs::metadata(file).with_context(|| format!("stat {}", file.display()))?;
+                let writer = HashWriter {
+                    writer,
+                    hasher: Sha1::new(),
+                };
+
+                let mut e = ZlibEncoder::new(writer, Compression::default());
+
+                write!(e, "blob ")?;
+                write!(e, "{}\0", stat.len())?;
+
+                let compressed = e.finish()?;
+                let hash = compressed.hasher.finalize();
+                Ok(hex::encode(hash))
+            }
+
+            let hash = if write {
+                let tmp = "temporary";
+                let hash = write_blob(
+                    &file,
+                    std::fs::File::create(tmp).context("construct temporary file for blob")?,
+                )
+                .context("write out blob object")?;
+                fs::create_dir_all(format!(".git/objects/{}/", &hash[..2]))
+                    .context("create subdir of .git/objects")?;
+                std::fs::rename(tmp, format!(".git/objects/{}/{}", &hash[..2], &hash[2..]))
+                    .context("move blob file into .git/objects")?;
+                hash
+            } else {
+                write_blob(&file, std::io::sink()).context("write out blob object")?
+            };
+            println!("{hash}");
+        }
     }
     Ok(())
 }
 
-struct LimitReader<R> {
-    reader: R,
-    limit: usize,
+//struct LimitReader<R> {
+//    reader: R,
+//    limit: usize,
+//}
+//
+//impl<R> Read for LimitReader<R>
+//where
+//    R: Read,
+//{
+//    fn read(&mut self, mut buf: &mut [u8]) -> io::Result<usize> {
+//        if buf.len() > self.limit {
+//            buf = &mut buf[..self.limit + 1];
+//        }
+//        let n = self.reader.read(buf)?;
+//        if n > self.limit {
+//            return Err(io::Error::new(io::ErrorKind::Other, "too many bytes"));
+//        }
+//        self.limit -= n;
+//        Ok(n)
+//    }
+//}
+
+struct HashWriter<W> {
+    writer: W,
+    hasher: Sha1,
 }
 
-impl<R> Read for LimitReader<R>
+impl<W> Write for HashWriter<W>
 where
-    R: Read,
+    W: Write,
 {
-    fn read(&mut self, mut buf: &mut [u8]) -> io::Result<usize> {
-        if buf.len() > self.limit {
-            buf = &mut buf[..self.limit + 1];
-        }
-        let n = self.reader.read(buf)?;
-        if n > self.limit {
-            return Err(io::Error::new(io::ErrorKind::Other, "too many bytes"));
-        }
-        self.limit -= n;
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let n = self.writer.write(buf)?;
+        self.hasher.update(&buf[..n]);
         Ok(n)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.writer.flush()
     }
 }
