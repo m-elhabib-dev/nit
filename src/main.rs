@@ -2,7 +2,7 @@ use anyhow::Context;
 use clap::{Parser, Subcommand};
 use flate2::read::ZlibDecoder;
 use std::ffi::CStr;
-use std::io::{Read, Write};
+use std::io::{self, Read};
 use std::{
     fs,
     io::{BufRead, BufReader},
@@ -80,24 +80,45 @@ fn main() -> anyhow::Result<()> {
             let size = size
                 .parse::<usize>()
                 .context(".git/objects file header has invalid size: {size}")?;
-
-            buf.clear();
-            buf.resize(size, 0);
-            z.read_exact(&mut buf[..])
-                .context("read true contents of .git/objects")?;
-            let n = z
-                .read(&mut [0])
-                .context("validate EOF in .git/object file")?;
-            anyhow::ensure!(n == 0, ".git/object file had {n} trailing bytes");
-            let stdout = std::io::stdout();
-            let mut stdout = stdout.lock();
+            let mut z = LimitReader {
+                reader: z,
+                limit: size,
+            };
             match kind {
-                Kind::Blob => stdout
-                    .write_all(&buf)
-                    .context("write object contents to stdout")?,
-                _ => write!(stdout, "we donot know yet hw to print")?,
+                Kind::Blob => {
+                    let stdout = std::io::stdout();
+                    let mut stdout = stdout.lock();
+                    let n = std::io::copy(&mut z, &mut stdout)
+                        .context("write .git/objects to stdout")?;
+                    anyhow::ensure!(
+                        n as usize == size,
+                        ".git/object file was not the expected size (expected: {size}, actual: {n})"
+                    );
+                }
             }
         }
     }
     Ok(())
+}
+
+struct LimitReader<R> {
+    reader: R,
+    limit: usize,
+}
+
+impl<R> Read for LimitReader<R>
+where
+    R: Read,
+{
+    fn read(&mut self, mut buf: &mut [u8]) -> io::Result<usize> {
+        if buf.len() > self.limit {
+            buf = &mut buf[..self.limit + 1];
+        }
+        let n = self.reader.read(buf)?;
+        if n > self.limit {
+            return Err(io::Error::new(io::ErrorKind::Other, "too many bytes"));
+        }
+        self.limit -= n;
+        Ok(n)
+    }
 }
