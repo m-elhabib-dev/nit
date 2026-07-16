@@ -10,6 +10,7 @@ struct Args {
 }
 
 pub(crate) mod commands;
+pub(crate) mod objects;
 
 /// Doc comment
 #[derive(Debug, Subcommand)]
@@ -27,6 +28,10 @@ enum Command {
         write: bool,
 
         file: PathBuf,
+    },
+    LsTree {
+        #[clap(long)]
+        name_only: bool,
     },
 }
 
@@ -47,6 +52,8 @@ fn main() -> anyhow::Result<()> {
         } => commands::cat_file::invoke(pretty_print, &object_hash)?,
 
         Command::HashObject { write, file } => commands::hash_object::invoke(write, &file)?,
+
+        Command::LsTree { name_only } => commands::ls_tree::invoke(name_only)?,
     }
     Ok(())
 }
