@@ -116,18 +116,22 @@ fn main() -> anyhow::Result<()> {
             {
                 let stat =
                     std::fs::metadata(file).with_context(|| format!("stat {}", file.display()))?;
-                let writer = HashWriter {
+
+                let writer = ZlibEncoder::new(writer, Compression::default());
+
+                let mut writer = HashWriter {
                     writer,
                     hasher: Sha1::new(),
                 };
 
-                let mut e = ZlibEncoder::new(writer, Compression::default());
+                write!(writer, "blob ")?;
+                write!(writer, "{}\0", stat.len())?;
+                let mut file = std::fs::File::open(&file)
+                    .with_context(|| format!("stat {}", file.display()))?;
+                std::io::copy(&mut file, &mut writer).context("stream file into blob")?;
 
-                write!(e, "blob ")?;
-                write!(e, "{}\0", stat.len())?;
-
-                let compressed = e.finish()?;
-                let hash = compressed.hasher.finalize();
+                let _ = writer.writer.finish()?;
+                let hash = writer.hasher.finalize();
                 Ok(hex::encode(hash))
             }
 
@@ -151,28 +155,6 @@ fn main() -> anyhow::Result<()> {
     }
     Ok(())
 }
-
-//struct LimitReader<R> {
-//    reader: R,
-//    limit: usize,
-//}
-//
-//impl<R> Read for LimitReader<R>
-//where
-//    R: Read,
-//{
-//    fn read(&mut self, mut buf: &mut [u8]) -> io::Result<usize> {
-//        if buf.len() > self.limit {
-//            buf = &mut buf[..self.limit + 1];
-//        }
-//        let n = self.reader.read(buf)?;
-//        if n > self.limit {
-//            return Err(io::Error::new(io::ErrorKind::Other, "too many bytes"));
-//        }
-//        self.limit -= n;
-//        Ok(n)
-//    }
-//}
 
 struct HashWriter<W> {
     writer: W,
