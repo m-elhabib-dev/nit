@@ -13,6 +13,7 @@ pub(crate) fn invoke(write: bool, file: &Path) -> anyhow::Result<()> {
     {
         let stat = std::fs::metadata(file).with_context(|| format!("stat {}", file.display()))?;
 
+        //TODO: technically there is a race here if the file changed between  the stat and write
         let writer = ZlibEncoder::new(writer, Compression::default());
 
         let mut writer = HashWriter {
