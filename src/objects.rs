@@ -1,4 +1,4 @@
-use anyhow::{Context, Ok};
+use anyhow::Context;
 use flate2::Compression;
 use flate2::read::ZlibDecoder;
 use flate2::write::ZlibEncoder;
@@ -6,6 +6,7 @@ use sha1::{Digest, Sha1};
 use std::ffi::CStr;
 use std::io::{BufRead, BufReader};
 use std::io::{Read, Write};
+use std::path::Path;
 use std::{fmt, io};
 
 #[derive(Debug, PartialEq, Eq)]
@@ -32,6 +33,20 @@ pub(crate) struct Object<R> {
 }
 
 impl Object<()> {
+    pub(crate) fn blob_from_file(file: impl AsRef<Path>) -> anyhow::Result<Object<impl Read>> {
+        let file = file.as_ref();
+
+        let stat = std::fs::metadata(file).with_context(|| format!("stat {}", file.display()))?;
+
+        //TODO: technically there is a race here if the file changed between  the stat and write
+        let file = std::fs::File::open(file).with_context(|| format!("stat {}", file.display()))?;
+        Ok(Object {
+            kind: Kind::Blob,
+            expected_size: stat.len() as usize,
+            reader: file,
+        })
+    }
+
     pub(crate) fn read(hash: &str) -> anyhow::Result<Object<impl BufRead>> {
         let f = std::fs::File::open(format!(".git/objects/{}/{}", &hash[..2], &hash[2..]))
             .context("open in .git/objects")?;
@@ -74,7 +89,7 @@ impl<R> Object<R>
 where
     R: Read,
 {
-    pub(crate) fn write<W: Write>(self, writer: W) -> anyhow::Result<[u8; 20]> {
+    pub(crate) fn write(mut self, writer: impl Write) -> anyhow::Result<[u8; 20]> {
         //TODO: technically there is a race here if the file changed between  the stat and write
         let writer = ZlibEncoder::new(writer, Compression::default());
 
@@ -88,7 +103,7 @@ where
 
         let _ = writer.writer.finish()?;
         let hash = writer.hasher.finalize();
-        Ok(hash)
+        Ok(hash.into())
     }
 }
 
@@ -104,7 +119,7 @@ where
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let n: usize = self.writer.write(buf)?;
         self.hasher.update(&buf[..n]);
-        Ok(n)
+        Ok(self.writer.write(buf)?)
     }
 
     fn flush(&mut self) -> io::Result<()> {

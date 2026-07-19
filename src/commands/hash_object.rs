@@ -1,34 +1,20 @@
+use crate::objects::Object;
 use anyhow::Context;
-use flate2::Compression;
-use flate2::write::ZlibEncoder;
 use sha1::{Digest, Sha1};
 use std::fs;
 use std::io;
 use std::io::Write;
 use std::path::Path;
+
 pub(crate) fn invoke(write: bool, file: &Path) -> anyhow::Result<()> {
     fn write_blob<W>(file: &Path, writer: W) -> anyhow::Result<String>
     where
         W: Write,
     {
-        let stat = std::fs::metadata(file).with_context(|| format!("stat {}", file.display()))?;
-
-        //TODO: technically there is a race here if the file changed between  the stat and write
-        let writer = ZlibEncoder::new(writer, Compression::default());
-
-        let mut writer = HashWriter {
-            writer,
-            hasher: Sha1::new(),
-        };
-
-        write!(writer, "blob ")?;
-        write!(writer, "{}\0", stat.len())?;
-        let mut file =
-            std::fs::File::open(&file).with_context(|| format!("stat {}", file.display()))?;
-        std::io::copy(&mut file, &mut writer).context("stream file into blob")?;
-
-        let _ = writer.writer.finish()?;
-        let hash = writer.hasher.finalize();
+        let hash = Object::blob_from_file(file)
+            .context("open blob input file")?
+            .write(writer)
+            .context("stream file into blob")?;
         Ok(hex::encode(hash))
     }
 
