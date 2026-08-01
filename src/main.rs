@@ -9,6 +9,7 @@ struct Args {
 }
 
 pub(crate) mod commands;
+pub(crate) mod index;
 pub(crate) mod objects;
 
 /// Doc comment
@@ -47,6 +48,8 @@ enum Command {
         #[clap(short = 'm')]
         message: String,
     },
+
+    Add,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -83,6 +86,7 @@ fn main() -> anyhow::Result<()> {
         Command::Commit { message } => {
             commands::commit::invoke(message)?;
         }
+        Command::Add => index::header::invoke()?,
     }
     Ok(())
 }
