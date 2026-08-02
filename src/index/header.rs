@@ -3,6 +3,9 @@ use std::io::{Read, Write};
 
 use anyhow::{Context, Ok};
 
+use crate::index::entry::IndexEntry;
+use crate::objects::Object;
+
 const INDEX_SIGNATURE: [u8; 4] = *b"DIRC";
 const INDEX_VERSION: u32 = 2;
 pub const HEADER_SIZE: usize = 12;
@@ -42,14 +45,18 @@ impl IndexHeader {
 }
 
 pub(crate) fn invoke() -> anyhow::Result<()> {
-    let path = "../.git/myindex";
+    let path = ".git/myindex";
 
-    let header = IndexHeader::new(9);
-    let file = File::create(path)?;
-    header.write(file)?;
+    let header = IndexHeader::new(1);
 
-    let mut file = File::open(path).context("cannot open index file")?;
-    let reads = IndexHeader::read(file)?;
+    let object = Object::blob_from_file(path)?;
+    let oid = object.write_to_objects()?;
+    let entry = IndexEntry::new(oid, path.to_owned());
+
+    let mut index = File::create(path)?;
+
+    header.write(&mut index)?;
+    entry.write(&mut index)?;
 
     Ok(())
 }
