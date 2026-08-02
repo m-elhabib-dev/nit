@@ -1,66 +1,18 @@
 use anyhow::Context;
+use std::fs;
 use std::io::Cursor;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
-use std::{cmp::Ordering, fs};
+
+use crate::objects::walk::read_dir_sorted;
 
 use crate::objects::{Kind, Object};
 
 pub(crate) fn write_tree_for(path: &Path) -> anyhow::Result<Option<[u8; 20]>> {
-    let mut dir =
-        fs::read_dir(path).with_context(|| format!("open directory {}", path.display()))?;
-
-    let mut entries = Vec::new();
-
-    while let Some(entry) = dir.next() {
-        let entry = entry.with_context(|| format!("bad directory entry in {}", path.display()))?;
-        let name = entry.file_name();
-        let meta = entry.metadata().context("metadata for directory entry")?;
-        entries.push((entry, name, meta));
-    }
-
-    entries.sort_unstable_by(|a, b| {
-        let afn = &a.1;
-        let afn = afn.as_encoded_bytes();
-        let bfn = &b.1;
-        let bfn = bfn.as_encoded_bytes();
-        let common_len = std::cmp::min(afn.len(), bfn.len());
-
-        match afn[..common_len].cmp(&bfn[..common_len]) {
-            Ordering::Equal => {}
-            o => return o,
-        }
-
-        if afn.len() == bfn.len() {
-            return Ordering::Equal;
-        }
-
-        let c1 = if let Some(c) = afn.get(common_len).copied() {
-            Some(c)
-        } else if a.2.is_dir() {
-            Some(b'/')
-        } else {
-            None
-        };
-
-        let c2 = if let Some(c) = bfn.get(common_len).copied() {
-            Some(c)
-        } else if b.2.is_dir() {
-            Some(b'/')
-        } else {
-            None
-        };
-        c1.cmp(&c2)
-    });
+    let entries = read_dir_sorted(path).context("coudlnt parse entries")?;
 
     let mut tree_object = Vec::new();
-    for (entry, file_name, meta) in entries {
-        if file_name == ".git" || file_name == "target" {
-            continue;
-        }
-
-        //     .metadata()
-        //     .with_context(|| format!("metadata for {}", entry_path.display()))?;
+    for (path, meta) in entries {
         let mode = if meta.is_dir() {
             "40000"
         } else if meta.is_symlink() {
@@ -70,7 +22,6 @@ pub(crate) fn write_tree_for(path: &Path) -> anyhow::Result<Option<[u8; 20]>> {
         } else {
             "100644"
         };
-        let path = entry.path();
         let hash = if meta.is_dir() {
             let Some(hash) = write_tree_for(&path)? else {
                 continue;
@@ -94,6 +45,7 @@ pub(crate) fn write_tree_for(path: &Path) -> anyhow::Result<Option<[u8; 20]>> {
         };
         tree_object.extend(mode.as_bytes());
         tree_object.push(b' ');
+        let file_name = path.file_name().unwrap();
         tree_object.extend(file_name.as_encoded_bytes());
         tree_object.push(0);
         tree_object.extend(hash);

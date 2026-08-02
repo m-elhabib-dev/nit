@@ -49,7 +49,9 @@ enum Command {
         message: String,
     },
 
-    Add,
+    Add {
+        file: PathBuf,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -86,7 +88,7 @@ fn main() -> anyhow::Result<()> {
         Command::Commit { message } => {
             commands::commit::invoke(message)?;
         }
-        Command::Add => index::header::invoke()?,
+        Command::Add { file } => index::header::invoke(file)?,
     }
     Ok(())
 }

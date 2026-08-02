@@ -1,10 +1,12 @@
-use std::fs::File;
+use std::fs::{File, Metadata};
 use std::io::{Read, Write};
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Ok};
 
 use crate::index::entry::IndexEntry;
 use crate::objects::Object;
+use crate::objects::walk::read_dir_sorted;
 
 const INDEX_SIGNATURE: [u8; 4] = *b"DIRC";
 const INDEX_VERSION: u32 = 2;
@@ -44,19 +46,42 @@ impl IndexHeader {
     }
 }
 
-pub(crate) fn invoke() -> anyhow::Result<()> {
-    let path = ".git/myindex";
-
-    let header = IndexHeader::new(1);
-
-    let object = Object::blob_from_file(path)?;
-    let oid = object.write_to_objects()?;
-    let entry = IndexEntry::new(oid, path.to_owned());
-
-    let mut index = File::create(path)?;
-
-    header.write(&mut index)?;
-    entry.write(&mut index)?;
-
+pub(crate) fn invoke(path: PathBuf) -> anyhow::Result<()> {
+    let mut index = File::create(".git/myindex")?;
+    if path == Path::new(".") {
+        let entries = read_dir_sorted(&path)
+            .with_context(|| format!("could not read path {}", path.display()))?;
+        let entries_result = collect_entries(entries)?;
+        let header = IndexHeader::new(entries_result.len() as u32);
+        header.write(&mut index)?;
+        for entry in entries_result {
+            entry.write(&mut index)?;
+        }
+    } else {
+        let header = IndexHeader::new(1);
+        header.write(&mut index)?;
+        let object = Object::blob_from_file(&path)?;
+        let oid = object.write_to_objects()?;
+        let entry = IndexEntry::new(oid, path);
+        entry.write(&mut index)?;
+    }
     Ok(())
+}
+
+fn collect_entries(entries: Vec<(PathBuf, Metadata)>) -> anyhow::Result<Vec<IndexEntry>> {
+    let mut entries_vec = Vec::new();
+    for (entry_path, meta) in entries {
+        if meta.is_dir() {
+            let children = read_dir_sorted(&entry_path)?;
+            let nested = collect_entries(children)?;
+            entries_vec.extend(nested);
+        } else {
+            let entry_path = entry_path.strip_prefix(".")?.to_path_buf();
+            let object = Object::blob_from_file(&entry_path)?;
+            let oid = object.write_to_objects()?;
+            let entry = IndexEntry::new(oid, entry_path);
+            entries_vec.push(entry);
+        }
+    }
+    Ok(entries_vec)
 }

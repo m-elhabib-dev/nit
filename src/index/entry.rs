@@ -1,7 +1,8 @@
+use anyhow::Ok;
 use std::cmp::min;
 use std::io::Write;
-
-use anyhow::Ok;
+use std::os::unix::ffi::OsStrExt;
+use std::path::PathBuf;
 
 pub struct IndexEntry {
     pub ctime_sec: u32,
@@ -16,11 +17,11 @@ pub struct IndexEntry {
     pub size: u32,
     pub oid: [u8; 20],
     pub flags: u16,
-    pub path: String,
+    pub path: PathBuf,
 }
 
 impl IndexEntry {
-    pub(crate) fn new(oid: [u8; 20], path: String) -> Self {
+    pub(crate) fn new(oid: [u8; 20], path: PathBuf) -> Self {
         Self {
             ctime_sec: 0,
             ctime_nsec: 0,
@@ -33,7 +34,7 @@ impl IndexEntry {
             gid: 0,
             size: 0,
             oid,
-            flags: min(path.len() as u16, 0x0fff),
+            flags: min(path.as_os_str().as_bytes().len() as u16, 0x0fff),
             path,
         }
     }
@@ -49,11 +50,11 @@ impl IndexEntry {
         writer.write_all(&self.gid.to_be_bytes())?;
         writer.write_all(&self.size.to_be_bytes())?;
         writer.write_all(&self.oid)?;
-        let flags = min(self.path.len() as u16, 0x0fff);
-        writer.write_all(&flags.to_be_bytes())?;
-        writer.write_all(self.path.as_bytes())?;
+        writer.write_all(&self.flags.to_be_bytes())?;
+        writer.write_all(self.path.as_os_str().as_bytes())?;
         writer.write_all(&[0])?;
-        let entry_size = 62 + self.path.len() + 1;
+
+        let entry_size = 62 + self.path.as_os_str().as_bytes().len() + 1;
         let padding = (8 - (entry_size % 8)) % 8;
         for _ in 0..padding {
             writer.write_all(&[0])?;
