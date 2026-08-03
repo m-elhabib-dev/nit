@@ -1,7 +1,9 @@
 use anyhow::Ok;
 use std::cmp::min;
+use std::fs::Metadata;
 use std::io::Write;
 use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::MetadataExt;
 use std::path::PathBuf;
 
 pub struct IndexEntry {
@@ -21,18 +23,18 @@ pub struct IndexEntry {
 }
 
 impl IndexEntry {
-    pub(crate) fn new(oid: [u8; 20], path: PathBuf) -> Self {
+    pub(crate) fn new(oid: [u8; 20], path: PathBuf, meta: &Metadata) -> Self {
         Self {
-            ctime_sec: 0,
-            ctime_nsec: 0,
-            mtime_sec: 0,
-            mtime_nsec: 0,
-            dev: 0,
-            ino: 0,
-            mode: 0,
-            uid: 0,
-            gid: 0,
-            size: 0,
+            ctime_sec: meta.ctime() as u32,
+            ctime_nsec: meta.ctime_nsec() as u32,
+            mtime_sec: meta.mtime() as u32,
+            mtime_nsec: meta.mtime_nsec() as u32,
+            dev: meta.dev() as u32,
+            ino: meta.ino() as u32,
+            mode: meta.mode(),
+            uid: meta.uid(),
+            gid: meta.gid(),
+            size: meta.size() as u32,
             oid,
             flags: min(path.as_os_str().as_bytes().len() as u16, 0x0fff),
             path,

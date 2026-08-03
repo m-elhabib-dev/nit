@@ -3,6 +3,7 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Ok};
+use sha1::{Digest, Sha1};
 
 use crate::index::entry::IndexEntry;
 use crate::objects::Object;
@@ -47,24 +48,28 @@ impl IndexHeader {
 }
 
 pub(crate) fn invoke(path: PathBuf) -> anyhow::Result<()> {
-    let mut index = File::create(".git/myindex")?;
+    let mut buffer = Vec::new();
     if path == Path::new(".") {
         let entries = read_dir_sorted(&path)
             .with_context(|| format!("could not read path {}", path.display()))?;
         let entries_result = collect_entries(entries)?;
         let header = IndexHeader::new(entries_result.len() as u32);
-        header.write(&mut index)?;
+        header.write(&mut buffer)?;
         for entry in entries_result {
-            entry.write(&mut index)?;
+            entry.write(&mut buffer)?;
         }
     } else {
         let header = IndexHeader::new(1);
-        header.write(&mut index)?;
+        header.write(&mut buffer)?;
+        let meta = std::fs::metadata(&path)?;
         let object = Object::blob_from_file(&path)?;
         let oid = object.write_to_objects()?;
-        let entry = IndexEntry::new(oid, path);
-        entry.write(&mut index)?;
+        let entry = IndexEntry::new(oid, path, &meta);
+        entry.write(&mut buffer)?;
     }
+    let checksum = Sha1::digest(&buffer);
+    buffer.extend_from_slice(&checksum);
+    std::fs::write(".git/myindex", buffer)?;
     Ok(())
 }
 
@@ -79,7 +84,7 @@ fn collect_entries(entries: Vec<(PathBuf, Metadata)>) -> anyhow::Result<Vec<Inde
             let entry_path = entry_path.strip_prefix(".")?.to_path_buf();
             let object = Object::blob_from_file(&entry_path)?;
             let oid = object.write_to_objects()?;
-            let entry = IndexEntry::new(oid, entry_path);
+            let entry = IndexEntry::new(oid, entry_path, &meta);
             entries_vec.push(entry);
         }
     }
