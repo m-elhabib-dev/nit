@@ -1,10 +1,13 @@
-use anyhow::Ok;
+use anyhow::{Context, Ok};
 use std::cmp::min;
+use std::ffi::OsString;
 use std::fs::Metadata;
-use std::io::Write;
-use std::os::unix::ffi::OsStrExt;
+use std::io::{Read, Write};
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::fs::MetadataExt;
 use std::path::PathBuf;
+
+const FIXED_SIZE: usize = 62;
 
 pub struct IndexEntry {
     pub ctime_sec: u32,
@@ -62,5 +65,53 @@ impl IndexEntry {
             writer.write_all(&[0])?;
         }
         Ok(())
+    }
+    pub(crate) fn read(mut reader: impl Read) -> anyhow::Result<IndexEntry> {
+        // Header buffer
+        let mut fixed = [0u8; FIXED_SIZE];
+        // read header
+        reader.read_exact(&mut fixed).context("cannot read entry")?;
+
+        let ctime_sec = u32::from_be_bytes(fixed[0..4].try_into()?);
+        let ctime_nsec = u32::from_be_bytes(fixed[4..8].try_into()?);
+        let mtime_sec = u32::from_be_bytes(fixed[8..12].try_into()?);
+        let mtime_nsec = u32::from_be_bytes(fixed[12..16].try_into()?);
+        let dev = u32::from_be_bytes(fixed[16..20].try_into()?);
+        let ino = u32::from_be_bytes(fixed[20..24].try_into()?);
+        let mode = u32::from_be_bytes(fixed[24..28].try_into()?);
+        let uid = u32::from_be_bytes(fixed[28..32].try_into()?);
+        let gid = u32::from_be_bytes(fixed[32..36].try_into()?);
+        let size = u32::from_be_bytes(fixed[36..40].try_into()?);
+        let oid = fixed[40..60].try_into()?;
+        let flags = u16::from_be_bytes(fixed[60..62].try_into()?);
+        let path_len = (flags & 0x0fff) as usize;
+        let mut path_bytes = vec![0; path_len];
+        reader.read_exact(&mut path_bytes)?;
+        let mut nul = [0u8; 1];
+        reader.read_exact(&mut nul)?;
+        let path = PathBuf::from(OsString::from_vec(path_bytes));
+
+        let entry_size = 62 + path.as_os_str().as_bytes().len() + 1;
+        let padding = (8 - (entry_size % 8)) % 8;
+        let mut padding_buf = vec![0u8; padding];
+        reader.read_exact(&mut padding_buf)?;
+
+        let index_entry = IndexEntry {
+            ctime_sec,
+            ctime_nsec,
+            mtime_sec,
+            mtime_nsec,
+            dev,
+            ino,
+            mode,
+            uid,
+            gid,
+            size,
+            oid,
+            flags,
+            path,
+        };
+
+        Ok(index_entry)
     }
 }
