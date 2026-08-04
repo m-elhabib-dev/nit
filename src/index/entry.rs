@@ -8,7 +8,7 @@ use std::os::unix::fs::MetadataExt;
 use std::path::PathBuf;
 
 const FIXED_SIZE: usize = 62;
-
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct IndexEntry {
     pub ctime_sec: u32,
     pub ctime_nsec: u32,
