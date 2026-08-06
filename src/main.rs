@@ -1,6 +1,8 @@
 use clap::{Parser, Subcommand};
 use std::fs::{self, create_dir};
 use std::path::PathBuf;
+
+use crate::Command::Clone;
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {
@@ -54,6 +56,9 @@ enum Command {
     },
 
     Status,
+    Clone {
+        url: String,
+    },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -92,6 +97,7 @@ fn main() -> anyhow::Result<()> {
         }
         Command::Add { file } => index::add::invoke(file)?,
         Command::Status => index::status::invoke()?,
+        Command::Clone { url } => commands::clone::invoke(url)?,
     }
     Ok(())
 }
