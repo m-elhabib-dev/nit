@@ -2,7 +2,6 @@ use clap::{Parser, Subcommand};
 use std::fs::{self, create_dir};
 use std::path::PathBuf;
 
-use crate::Command::Clone;
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Args {

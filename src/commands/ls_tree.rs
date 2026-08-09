@@ -7,11 +7,12 @@ use std::{
 use crate::objects::{Kind, Object};
 use anyhow::{Context, Ok};
 
+#[derive(Debug)]
 pub(crate) struct TreeEntry {
-    mode: String,
-    name: OsString,
-    hash: [u8; 20],
-    kind: Kind,
+    pub(crate) mode: String,
+    pub(crate) name: OsString,
+    pub(crate) hash: [u8; 20],
+    pub(crate) kind: Kind,
 }
 
 pub(crate) fn read_tree(object: Object<impl BufRead>) -> anyhow::Result<Vec<TreeEntry>> {

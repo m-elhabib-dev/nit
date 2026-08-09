@@ -1,13 +1,17 @@
 use std::{
     env,
-    fs::{self, File},
+    fs::{self, File, create_dir_all},
     io::Read,
     path::{Path, PathBuf},
 };
 
 use anyhow::{Context, Ok};
+use flate2::read::ZlibDecoder;
 
-use crate::{commands::ls_tree, objects::Object};
+use crate::{
+    commands::ls_tree::{self, TreeEntry, read_tree},
+    objects::{Kind, Object},
+};
 
 // ├── copy_git()
 // ├── resolve_head()
@@ -35,7 +39,7 @@ fn copy_git(src: &Path, dst: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn resolve_head(dst: &Path) -> anyhow::Result<String> {
+fn resolve_head() -> anyhow::Result<String> {
     let head_path = PathBuf::from(".git/HEAD");
     let head = fs::read_to_string(head_path)?;
 
@@ -50,7 +54,7 @@ fn resolve_head(dst: &Path) -> anyhow::Result<String> {
     Ok(commit.to_string())
 }
 
-fn read_commit(commit: String) -> anyhow::Result<()> {
+fn read_commit(commit: String) -> anyhow::Result<Vec<TreeEntry>> {
     let mut object = Object::read(&commit).context("couldn't read the commit")?;
     let mut commit_text = String::new();
     object.reader.read_to_string(&mut commit_text)?;
@@ -64,7 +68,23 @@ fn read_commit(commit: String) -> anyhow::Result<()> {
             parent_hash.push_str(line.trim().trim_start_matches("parent "));
         }
     }
-    ls_tree::invoke(false, &tree_hash)?;
+    let object = Object::read(&tree_hash).context("parse out tree object file")?;
+    let entries = read_tree(object)?;
+    Ok(entries)
+}
+
+fn write_content(entries: Vec<TreeEntry>) -> anyhow::Result<()> {
+    for entry in entries {
+        if entry.kind == Kind::Blob {
+            let hash = entry.hash;
+            let hash = hex::encode(hash);
+            let mut object = Object::read(&hash)?;
+            let mut dist = File::create(&entry.name)?;
+            std::io::copy(&mut object.reader, &mut dist)?;
+        } else if entry.kind == Kind::Tree {
+            println!("Tree");
+        }
+    }
     Ok(())
 }
 
@@ -83,19 +103,10 @@ pub(crate) fn invoke(url: String) -> anyhow::Result<()> {
 
     println!("Cloning into '{}'...", dst.display());
     copy_git(src, dst)?;
-    println!("Done.");
-
     let cwd = env::current_dir()?;
-    println!("current working dir before = {}", cwd.display());
     env::set_current_dir(cwd.join(dst))?;
-
-    let cwd = env::current_dir()?;
-    println!("current working dir after = {}", cwd.display());
-    println!("resolving HEAD");
-    let current_commit = resolve_head(dst)?;
-    println!("resolved");
-    println!("reading current commit {current_commit} started");
-    read_commit(current_commit)?;
-    println!("read");
+    let current_commit = resolve_head()?;
+    let entries = read_commit(current_commit)?;
+    let writen = write_content(entries)?;
     Ok(())
 }
