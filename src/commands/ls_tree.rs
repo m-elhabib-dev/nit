@@ -1,6 +1,6 @@
 use std::{
     ffi::{CStr, OsString},
-    io::{BufRead, Read, Write},
+    io::BufRead,
     os::unix::ffi::OsStringExt,
 };
 
@@ -61,7 +61,7 @@ pub(crate) fn read_tree(object: Object<impl BufRead>) -> anyhow::Result<Vec<Tree
 }
 pub(crate) fn invoke(name_only: bool, tree_hash: &str) -> anyhow::Result<()> {
     let object = Object::read(tree_hash).context("parse out tree object file")?;
-    let mut entries: Vec<TreeEntry> = Vec::new();
+    let entries: Vec<TreeEntry>;
     match object.kind {
         Kind::Tree => {
             entries = read_tree(object)?;

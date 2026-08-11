@@ -1,24 +1,18 @@
+use reqwest;
 use std::{
     env,
+    fmt::format,
     fs::{self, File, create_dir_all},
     io::Read,
     path::{Path, PathBuf},
 };
 
 use anyhow::{Context, Ok};
-use flate2::read::ZlibDecoder;
 
 use crate::{
-    commands::ls_tree::{self, TreeEntry, read_tree},
+    commands::ls_tree::{TreeEntry, read_tree},
     objects::{Kind, Object},
 };
-
-// ├── copy_git()
-// ├── resolve_head()
-// ├── read_commit()
-// ├── checkout_tree()
-// ├── write_index()
-// └── invoke()
 
 fn copy_git(src: &Path, dst: &Path) -> anyhow::Result<()> {
     fs::create_dir_all(dst)?;
@@ -33,7 +27,7 @@ fn copy_git(src: &Path, dst: &Path) -> anyhow::Result<()> {
         if src_path.is_dir() {
             copy_git(src_path.as_path(), &dst_path)?;
         } else {
-            let copy = fs::copy(src_path, dst_path)?;
+            fs::copy(src_path, dst_path)?;
         }
     }
     Ok(())
@@ -73,7 +67,7 @@ fn read_commit(commit: String) -> anyhow::Result<Vec<TreeEntry>> {
     Ok(entries)
 }
 
-fn write_content(entries: Vec<TreeEntry>, cwd: &PathBuf) -> anyhow::Result<()> {
+fn write_content(entries: Vec<TreeEntry>, cwd: &Path) -> anyhow::Result<()> {
     for entry in entries {
         let hash = entry.hash;
         let hash = hex::encode(hash);
@@ -91,29 +85,101 @@ fn write_content(entries: Vec<TreeEntry>, cwd: &PathBuf) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub(crate) fn invoke(url: String) -> anyhow::Result<()> {
-    let src = Path::new(&url);
-    let dst = src
-        .file_name()
-        .ok_or_else(|| anyhow::anyhow!("invalid repository path"))?;
-    let dst = Path::new(dst);
-    if dst.exists() {
-        anyhow::bail!("destination '{}' already exists", dst.display());
+fn fetch_url(url: String) -> anyhow::Result<()> {
+    let mut get_url = url.clone();
+    get_url.push_str("/info/refs?service=git-upload-pack");
+    let response = reqwest::blocking::get(&get_url)?;
+    let response = response.text()?;
+
+    let mut sha = None;
+
+    for line in response.lines() {
+        if line.contains(" HEAD") {
+            sha = Some(line[8..48].to_string());
+            break;
+        }
     }
-    if !src.join(".git").is_dir() {
-        anyhow::bail!("not a git repository");
+    let sha = sha.ok_or_else(|| anyhow::anyhow!("HEAD not found"))?;
+    let post_url = format!("{url}/git-upload-pack");
+    let mut body = pkt_line(&format!("want {sha}\n"));
+    body.extend_from_slice(b"0000");
+    body.extend_from_slice(&pkt_line("done\n"));
+    let client = reqwest::blocking::Client::new();
+
+    let res = client
+        .post(post_url)
+        .header(
+            reqwest::header::CONTENT_TYPE,
+            "application/x-git-upload-pack-request",
+        )
+        .body(body)
+        .send()?;
+
+    let bytes = res.bytes()?;
+    fs::write("response.pack", &bytes)?;
+    println!("response size = {}", bytes.len());
+    println!("{:02x?}", &bytes[..bytes.len().min(100)]);
+    let pack_start = bytes
+        .windows(4)
+        .position(|window| window == b"PACK")
+        .ok_or_else(|| anyhow::anyhow!("PACK not found"))?;
+    let pack = &bytes[pack_start..];
+    read_pack_header(pack);
+    Ok(())
+}
+
+fn pkt_line(data: &str) -> Vec<u8> {
+    let mut line = Vec::new();
+    let len = data.len() + 4;
+    let header = format!("{len:04x}");
+    line.extend_from_slice(header.as_bytes());
+    line.extend_from_slice(data.as_bytes());
+    line
+}
+
+fn read_pack_header(pack: &[u8]) -> anyhow::Result<()> {
+    let name = &pack[..4];
+
+    if name != b"PACK" {
+        anyhow::bail!("Not PACK");
     }
 
-    println!("Cloning into '{}'...", dst.display());
-    copy_git(src, dst)?;
-    let cwd = env::current_dir()?.join(dst);
-    env::set_current_dir(&cwd)?;
-    println!("resolving HEAD...");
-    let current_commit = resolve_head()?;
-    println!("reading entries...");
-    let entries = read_commit(current_commit)?;
-    println!("writing index...");
-    let writen = write_content(entries, &cwd)?;
-    println!("cloning done.");
+    let version = u32::from_be_bytes(pack[4..8].try_into()?);
+    let object_count = u32::from_be_bytes(pack[8..12].try_into()?);
+
+    println!("PACK version: {version}");
+    println!("Objects: {object_count}");
+
+    Ok(())
+}
+
+pub(crate) fn invoke(url: String) -> anyhow::Result<()> {
+    if url.starts_with("http") {
+        println!("clonning from remote...");
+        fetch_url(url)?;
+    } else {
+        let src = Path::new(&url);
+        let dst = src
+            .file_name()
+            .ok_or_else(|| anyhow::anyhow!("invalid repository path"))?;
+        let dst = Path::new(dst);
+        if dst.exists() {
+            anyhow::bail!("destination '{}' already exists", dst.display());
+        }
+        if !src.join(".git").is_dir() {
+            anyhow::bail!("not a git repository");
+        }
+        println!("Cloning into '{}'...", dst.display());
+        copy_git(src, dst)?;
+        let cwd = env::current_dir()?.join(dst);
+        env::set_current_dir(&cwd)?;
+        println!("resolving HEAD...");
+        let current_commit = resolve_head()?;
+        println!("reading entries...");
+        let entries = read_commit(current_commit)?;
+        println!("writing index...");
+        write_content(entries, &cwd)?;
+        println!("cloning done.");
+    }
     Ok(())
 }
