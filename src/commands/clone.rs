@@ -73,16 +73,19 @@ fn read_commit(commit: String) -> anyhow::Result<Vec<TreeEntry>> {
     Ok(entries)
 }
 
-fn write_content(entries: Vec<TreeEntry>) -> anyhow::Result<()> {
+fn write_content(entries: Vec<TreeEntry>, cwd: &PathBuf) -> anyhow::Result<()> {
     for entry in entries {
+        let hash = entry.hash;
+        let hash = hex::encode(hash);
+        let mut object = Object::read(&hash)?;
         if entry.kind == Kind::Blob {
-            let hash = entry.hash;
-            let hash = hex::encode(hash);
-            let mut object = Object::read(&hash)?;
-            let mut dist = File::create(&entry.name)?;
+            let mut dist = File::create(cwd.join(&entry.name))?;
             std::io::copy(&mut object.reader, &mut dist)?;
         } else if entry.kind == Kind::Tree {
-            println!("Tree");
+            let dir = cwd.join(&entry.name);
+            create_dir_all(&dir)?;
+            let entries = read_tree(object)?;
+            write_content(entries, &dir)?;
         }
     }
     Ok(())
@@ -103,10 +106,14 @@ pub(crate) fn invoke(url: String) -> anyhow::Result<()> {
 
     println!("Cloning into '{}'...", dst.display());
     copy_git(src, dst)?;
-    let cwd = env::current_dir()?;
-    env::set_current_dir(cwd.join(dst))?;
+    let cwd = env::current_dir()?.join(dst);
+    env::set_current_dir(&cwd)?;
+    println!("resolving HEAD...");
     let current_commit = resolve_head()?;
+    println!("reading entries...");
     let entries = read_commit(current_commit)?;
-    let writen = write_content(entries)?;
+    println!("writing index...");
+    let writen = write_content(entries, &cwd)?;
+    println!("cloning done.");
     Ok(())
 }
