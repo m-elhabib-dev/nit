@@ -16,20 +16,23 @@ pub(crate) mod objects;
 /// Doc comment
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Doc comment
+    /// init` — create a `.git` repository skeleton
     Init,
+    /// cat-file -p <hash>` — pretty-print an object
     CatFile {
         #[clap(short = 'p')]
         pretty_print: bool,
 
         object_hash: String,
     },
+    /// hash-object [-w] <file>` — compute an object hash, optionally write it
     HashObject {
         #[clap(short = 'w')]
         write: bool,
 
         file: PathBuf,
     },
+    /// ls-tree [--name-only] <tree-hash>` — list a tree's entries
     LsTree {
         #[clap(long)]
         name_only: bool,
@@ -37,7 +40,9 @@ enum Command {
         tree_hash: String,
     },
 
+    /// write-tree` — write the working tree as a tree object
     WriteTree,
+    /// commit-tree -m <msg> [-p <parent>] <tree-hash>` — write a commit object
     CommitTree {
         #[clap(short = 'm')]
         message: String,
@@ -45,19 +50,19 @@ enum Command {
         #[clap(short = 'p')]
         parent_hash: Option<String>,
     },
+    /// commit -m <msg>` — write tree + commit, update the current branch
     Commit {
         #[clap(short = 'm')]
         message: String,
     },
 
-    Add {
-        file: PathBuf,
-    },
+    /// add <file>` — stage a file (or `.` for everything) into the index
+    Add { file: PathBuf },
 
+    /// status` — show modified, deleted, and untracked files
     Status,
-    Clone {
-        url: String,
-    },
+    /// clone <path>` — clone a local repository
+    Clone { url: String },
 }
 
 fn main() -> anyhow::Result<()> {
