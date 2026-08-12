@@ -1,3 +1,4 @@
+use flate2::read::{ZlibDecoder, ZlibEncoder};
 use reqwest;
 use std::{
     env,
@@ -124,7 +125,17 @@ fn fetch_url(url: String) -> anyhow::Result<()> {
         .position(|window| window == b"PACK")
         .ok_or_else(|| anyhow::anyhow!("PACK not found"))?;
     let pack = &bytes[pack_start..];
-    read_pack_header(pack);
+
+    let name = &pack[..4];
+
+    if name != b"PACK" {
+        anyhow::bail!("Not PACK");
+    }
+    let object_count = u32::from_be_bytes(pack[8..12].try_into()?);
+    let mut index = 12;
+    for _ in 0..object_count {
+        index = read_pack_object(&pack, index)?;
+    }
     Ok(())
 }
 
@@ -137,26 +148,74 @@ fn pkt_line(data: &str) -> Vec<u8> {
     line
 }
 
-fn read_pack_header(pack: &[u8]) -> anyhow::Result<()> {
-    let name = &pack[..4];
+//INFO: this function it totally written by AI with my guides
+fn read_pack_object(pack: &[u8], start: usize) -> anyhow::Result<usize> {
+    let mut index = start;
 
-    if name != b"PACK" {
-        anyhow::bail!("Not PACK");
+    let first = pack[index];
+    index += 1;
+
+    let object_type = (first >> 4) & 0x07;
+    let mut size = (first & 0x0f) as u64;
+
+    let mut shift = 4;
+    let mut byte = first;
+
+    while byte & 0x80 != 0 {
+        byte = pack[index];
+        index += 1;
+
+        size += ((byte & 0x7f) as u64) << shift;
+        shift += 7;
     }
+    //
+    // let compressed = &pack[index..];
+    //
+    // let mut decoder = ZlibDecoder::new(compressed);
+    // let mut content = Vec::new();
+    //
+    // decoder.read_to_end(&mut content)?;
+    //
+    // let consumed = decoder.total_in() as usize;
+    //
+    // println!("type: {object_type}");
+    // println!("size: {size}");
+    // println!("decompressed: {}", content.len());
+    // println!("compressed: {consumed}");
+    //
+    //
+    println!("type: {object_type}");
+    println!("size: {size}");
 
-    let version = u32::from_be_bytes(pack[4..8].try_into()?);
-    let object_count = u32::from_be_bytes(pack[8..12].try_into()?);
+    let compressed = &pack[index..];
 
-    println!("PACK version: {version}");
-    println!("Objects: {object_count}");
+    let mut decoder = ZlibDecoder::new(compressed);
+    let mut content = Vec::new();
 
-    Ok(())
+    match decoder.read_to_end(&mut content) {
+        std::result::Result::Ok(_) => {
+            let consumed = decoder.total_in() as usize;
+
+            println!("decompressed: {}", content.len());
+            println!("compressed: {consumed}");
+
+            Ok(index + consumed)
+        }
+        Err(err) => {
+            println!("zlib error: {err}");
+            println!("object starts at: {start}");
+            println!("type: {object_type}");
+            Err(err.into())
+        }
+    }
 }
 
 pub(crate) fn invoke(url: String) -> anyhow::Result<()> {
     if url.starts_with("http") {
-        println!("clonning from remote...");
-        fetch_url(url)?;
+        //println!("clonning from remote...");
+        //fetch_url(url)?;
+        //
+        anyhow::bail!("We dont support remote clonning yet, try local cloning");
     } else {
         let src = Path::new(&url);
         let dst = src
