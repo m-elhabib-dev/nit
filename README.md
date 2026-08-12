@@ -25,8 +25,46 @@ Repos created by `nit` use the same on-disk format as Git, so you can inspect th
 
 * **Remote protocol (in progress)**: partial HTTP smart-protocol implementation (`git-upload-pack`, pkt-line framing) — currently only reads the pack header
 
-## Build & Usage Guide
+## Known Limitations 
+`nit` is a learning-oriented Git reimplementation, so it currently has several limitations and intentional deviations from Git.
 
+### Platform compatibility
+* **Linux-focused**. The current implementation has not been designed or tested for Windows.
+* Some filesystem behavior and path handling may therefore be platform-specific.
+* Windows-specific concerns such as path separators, file modes, and filesystem metadata are not currently handled.
+
+### `.gitignore`
+* **`.gitignore` is not implemented.**
+* `nit add .` currently considers files without applying Git's ignore rules.
+* This means files such as build artifacts, editor files, and environment files can be added unintentionally.
+
+### Remote repositories
+* **Remote cloning is not currently supported.**
+* Local repository cloning works, but the Git smart HTTP protocol and packfile handling are still incomplete.
+* The remote-cloning experiment reached Git's `PACK` format and successfully parsed normal objects, but delta objects still require implementation.
+
+### Git compatibility
+* `nit` does **not aim for full Git compatibility** yet.
+* Many Git commands, options, configuration mechanisms, and edge cases are not implemented.
+* The implementation currently focuses on understanding and reproducing the core Git object model and index.
+
+### Path and filesystem edge cases
+* Git supports filenames and filesystem behavior that are more complicated than the current implementation assumes.
+* Path handling has not been fully tested against unusual filenames, platform-specific paths, or non-UTF-8 filenames.
+
+### Object handling
+* Packfiles containing **`OFS_DELTA` and `REF_DELTA` objects** are not fully supported.
+* The current object implementation primarily works with loose Git objects.
+* Full packfile support requires delta resolution and conversion of packed objects into usable Git objects.
+
+### Index compatibility
+* The custom index implementation currently targets the Git index format needed by `nit`.
+* Advanced index features and edge cases are not implemented.
+
+This section would fit well near the end of your README, under something like **"Known Limitations"**, separate from the project's implemented features.
+
+
+## Build & Usage Guide
 If you donot know how to build and use it donot use it, Bro use Git instead :(
 
 ## For Nerds
