@@ -65,7 +65,49 @@ This section would fit well near the end of your README, under something like **
 
 
 ## Build & Usage Guide
-If you donot know how to build and use it donot use it, Bro use Git instead :(
+If you donot know how to build and use it **donot use it**, Bro use Git instead :(
+
+## Build
+```bash
+git clone https://github.com/m-elhabib-dev/nit.git
+cd nit
+cargo build --release
+```
+Run directly with Cargo:
+```bash
+cargo run -- <command>
+```
+Or install locally:
+```bash
+cargo install --path .
+```
+## Usage
+Initialize a repository:
+```bash
+nit init
+```
+Add files:
+```bash
+nit add <file>
+```
+Check status:
+```bash
+nit status
+```
+Create and inspect Git objects:
+```bash
+nit hash-object <file>
+nit cat-file <object>
+nit write-tree
+nit ls-tree <tree>
+nit commit-tree <tree>
+```
+Create a commit:
+```bash
+nit commit
+```
+`nit` implements a subset of Git's core functionality for learning purposes. Remote operations such as cloning from remote repositories are currently not supported.
+
 
 ## For Nerds
 
@@ -75,3 +117,8 @@ The name "nit" was given by Me, I described the tool as "the stupid content trac
 * **"New Information Tracker"**, when everything works perfectly.
 * **"Goddamn Idiotic Truckload of Sh*t"**, when everything breaks.
 
+## Resources
+
+- [Rust Course by Ahmed Farghal](https://www.youtube.com/playlist?list=PLald6EODoOJU0GMuYHlkS9MLhTPE7HiaT)
+- [Learn Rust Programming by Arfan Zubi](https://www.youtube.com/watch?v=BpPEoZW5IiY&t=47295s)
+- [Implementing (Parts of) Git from Scratch in Rust by Jon Gjengset](https://www.youtube.com/watch?v=u0VotuGzD_w)
